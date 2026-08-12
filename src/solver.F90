@@ -114,7 +114,10 @@ subroutine ssh_solve_cg(x, rhs, solverinfo, partit, mesh)
   real(kind=WP),       intent(inout)         :: x(partit%myDim_nod2D+partit%eDim_nod2D)
   real(kind=WP),       intent(in)            :: rhs(partit%myDim_nod2D+partit%eDim_nod2D)
   integer                      :: row, nini, nend, iter 
-  real(kind=WP)                :: sprod(2), s_old, s_aux, al, be, rtol
+  ! CG scalar chain in real64 regardless of WP (textbook mixed-precision CG:
+  ! dots/norms/recurrence scalars in high precision, vectors/SpMV in working
+  ! precision; the C++ port pre-registers exactly this island)
+  real(kind=8)                 :: sprod(2), s_old, s_aux, al, be, rtol
   integer                      :: req
   real(kind=WP), pointer       :: pr_values(:), rr(:), zz(:), pp(:), App(:)
   integer,       pointer       :: rptr(:), cind(:)
@@ -140,17 +143,17 @@ subroutine ssh_solve_cg(x, rhs, solverinfo, partit, mesh)
   ! Define working tolerance: 
   ! ==============
 #if !defined(__openmp_reproducible)
-  s_old=0.0_WP
+  s_old=0.0_8
 !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(row) REDUCTION(+:s_old)
   DO row=1, myDim_nod2D
-     s_old=s_old+rhs(row)*rhs(row)
+     s_old=s_old+real(rhs(row),8)*real(rhs(row),8)
   END DO
 !$OMP END PARALLEL DO
 #else
  s_old = sum(rhs(1:myDim_nod2D) * rhs(1:myDim_nod2D))
 #endif
 
-  call MPI_Allreduce(MPI_IN_PLACE, s_old, 1, MPI_WP, MPI_SUM, partit%MPI_COMM_FESOM, MPIerr)
+  call MPI_Allreduce(MPI_IN_PLACE, s_old, 1, MPI_DOUBLE_PRECISION, MPI_SUM, partit%MPI_COMM_FESOM, MPIerr)
   rtol=solverinfo%soltol*sqrt(s_old/real(nod2D,WP))
   ! ==============
   ! Compute r0
@@ -178,17 +181,17 @@ subroutine ssh_solve_cg(x, rhs, solverinfo, partit, mesh)
   ! ===============
 
 #if !defined(__openmp_reproducible)
-  s_old=0.0_WP
+  s_old=0.0_8
 !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(row) REDUCTION(+:s_old)
   DO row=1, myDim_nod2D
-     s_old=s_old+rr(row)*zz(row)
+     s_old=s_old+real(rr(row),8)*real(zz(row),8)
   END DO
 !$OMP END PARALLEL DO
 #else
   s_old = sum(rr(1:myDim_nod2D) * zz(1:myDim_nod2D))
 #endif
 
-  call MPI_Allreduce(MPI_IN_PLACE, s_old, 1, MPI_WP, MPI_SUM, partit%MPI_COMM_FESOM, MPIerr)
+  call MPI_Allreduce(MPI_IN_PLACE, s_old, 1, MPI_DOUBLE_PRECISION, MPI_SUM, partit%MPI_COMM_FESOM, MPIerr)
   
   ! ===============
   ! Iterations
@@ -208,17 +211,17 @@ subroutine ssh_solve_cg(x, rhs, solverinfo, partit, mesh)
      ! ============
  
 #if !defined(__openmp_reproducible)
-  s_aux=0.0_WP
+  s_aux=0.0_8
 !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(row) REDUCTION(+:s_aux)
   DO row=1, myDim_nod2D
-     s_aux=s_aux+pp(row)*App(row)
+     s_aux=s_aux+real(pp(row),8)*real(App(row),8)
   END DO
 !$OMP END PARALLEL DO
 #else
  s_aux = sum(pp(1:myDim_nod2D) * App(1:myDim_nod2D))
 #endif
 
-  call MPI_Allreduce(MPI_IN_PLACE, s_aux, 1, MPI_WP, MPI_SUM, partit%MPI_COMM_FESOM, MPIerr)
+  call MPI_Allreduce(MPI_IN_PLACE, s_aux, 1, MPI_DOUBLE_PRECISION, MPI_SUM, partit%MPI_COMM_FESOM, MPIerr)
 
   al=s_old/s_aux
      ! ===========
@@ -244,11 +247,11 @@ subroutine ssh_solve_cg(x, rhs, solverinfo, partit, mesh)
      ! Scalar products for beta
      ! ===========
 #if !defined(__openmp_reproducible)
-sprod(1:2)=0.0_WP
+sprod(1:2)=0.0_8
 !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(row) REDUCTION(+:sprod)
   DO row=1, myDim_nod2D
-     sprod(1)=sprod(1)+rr(row)*zz(row)
-     sprod(2)=sprod(2)+rr(row)*rr(row)
+     sprod(1)=sprod(1)+real(rr(row),8)*real(zz(row),8)
+     sprod(2)=sprod(2)+real(rr(row),8)*real(rr(row),8)
   END DO
 !$OMP END PARALLEL DO
 #else
@@ -256,7 +259,7 @@ sprod(1:2)=0.0_WP
     sprod(1) = sum(rr(1:myDim_nod2D) * rr(1:myDim_nod2D))
 #endif
   
-  call MPI_Allreduce(MPI_IN_PLACE, sprod, 2, MPI_WP, MPI_SUM, partit%MPI_COMM_FESOM, MPIerr)
+  call MPI_Allreduce(MPI_IN_PLACE, sprod, 2, MPI_DOUBLE_PRECISION, MPI_SUM, partit%MPI_COMM_FESOM, MPIerr)
 
 !$OMP BARRIER
      ! ===========

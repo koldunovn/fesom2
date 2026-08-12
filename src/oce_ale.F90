@@ -1705,10 +1705,18 @@ subroutine update_stiff_mat_ale(partit, mesh)
 #include "associate_mesh_ass.h"
 
     !___________________________________________________________________________
-    ! update secod term of lhs od equation (18) of "FESOM2 from finite element 
+    ! update secod term of lhs od equation (18) of "FESOM2 from finite element
     ! to finite volumes" --> stiff matrix part
     ! loop over lcal edges
     factor=g*dt*alpha*theta
+
+    ! FP64 accumulation shadow (see MOD_MESH): seed lazily from the current
+    ! matrix so every init/restart path is covered; increments below go into
+    ! the shadow, and the working-precision matrix is refreshed at the end.
+    if (.not. allocated(SSH_stiff%values_dbl)) then
+        allocate(SSH_stiff%values_dbl(size(SSH_stiff%values)))
+        SSH_stiff%values_dbl = real(SSH_stiff%values, 8)
+    end if
 
 !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(n, i, j, k, row, ed, n2, enodes, elnodes, el, elem, npos, offset, nini, nend, fx, fy)
     do ed=1,myDim_edge2D   !! Attention
@@ -1766,16 +1774,19 @@ subroutine update_stiff_mat_ale(partit, mesh)
 #else
 !$OMP ORDERED
 #endif
-                   SSH_stiff%values(npos)=SSH_stiff%values(npos) + fy*factor
+                   SSH_stiff%values_dbl(npos)=SSH_stiff%values_dbl(npos) + real(fy,8)*real(factor,8)
 #if defined(_OPENMP)  && !defined(__openmp_reproducible)
                    call omp_unset_lock(partit%plock(row))
 #else
 !$OMP END ORDERED
 #endif                
             end do ! --> do i=1,2
-        end do ! --> do j=1,2 
-    end do ! --> do ed=1,myDim_edge2D 
+        end do ! --> do j=1,2
+    end do ! --> do ed=1,myDim_edge2D
 !$OMP END PARALLEL DO
+    ! refresh the working-precision matrix from the FP64 shadow (rounded ONCE
+    ! per step, so the solver SpMV keeps its working-precision bandwidth)
+    SSH_stiff%values = real(SSH_stiff%values_dbl, WP)
 !DS this check will work only on 0pe because SSH_stiff%rowptr contains global pointers
 !if (mype==0) then
 !do row=1, myDim_nod2D

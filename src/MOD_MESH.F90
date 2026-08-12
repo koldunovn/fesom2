@@ -12,6 +12,13 @@ TYPE SPARSE_MATRIX
      integer :: nza
      integer :: dim
      real(kind=WP),  allocatable,   dimension(:) :: values
+     ! FP64 accumulation shadow of `values` for the WP=4 build: the zstar ALE
+     ! update increments `values` in place every step, open-loop, for the whole
+     ! run; float32 absorption of sub-ulp increments de-tunes the operator over
+     ! ~1e5 steps (date-locked blowup class, see the C++ port's
+     ! ssh-stiff-ale-acc island). Increments accumulate here; `values` is
+     ! refreshed from it (rounded once) after each update.
+     real(kind=8),   allocatable,   dimension(:) :: values_dbl
      integer(int32), allocatable,   dimension(:) :: colind
      integer(int32), allocatable,   dimension(:) :: rowptr
      integer(int32), allocatable,   dimension(:) :: colind_loc
