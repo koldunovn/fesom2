@@ -326,28 +326,34 @@ subroutine integrate_nod_2D(data, int2D, partit, mesh)
   real(kind=WP), intent(in)         :: data(:)
   real(kind=WP), intent(inout)      :: int2D
 
+  ! Global-budget closure integral: accumulate and reduce in real64 regardless
+  ! of WP (FP64 island). In the WP=4 build a float32 sum has an error scaling
+  ! with the GROSS flux, while the balanced quantity is the small net of large
+  ! cancelling terms; the biased residual integrates into a secular drift of
+  ! the global salt content. Only the final cast rounds to WP.
   integer       :: row
-  real(kind=WP) :: lval
+  real(kind=8)  :: lval, gval
 #include "associate_part_def.h"
 #include "associate_mesh_def.h"
 #include "associate_part_ass.h"
-#include "associate_mesh_ass.h" 
+#include "associate_mesh_ass.h"
 
-lval=0.0_WP
+lval=0.0_8
 #if !defined(__openmp_reproducible)
 !$OMP PARALLEL DEFAULT(SHARED) PRIVATE(row)
 !$OMP DO REDUCTION (+: lval)
 #endif
   do row=1, myDim_nod2D
-     lval=lval+data(row)*areasvol(ulevels_nod2D(row),row)
+     lval=lval+real(data(row),8)*real(areasvol(ulevels_nod2D(row),row),8)
   end do
-#if !defined(__openmp_reproducible) 
+#if !defined(__openmp_reproducible)
 !$OMP END DO
 !$OMP END PARALLEL
 #endif
-  int2D=0.0_WP
-  call MPI_AllREDUCE(lval, int2D, 1, MPI_WP, MPI_SUM, &
+  gval=0.0_8
+  call MPI_AllREDUCE(lval, gval, 1, MPI_DOUBLE_PRECISION, MPI_SUM, &
        MPI_COMM_FESOM, MPIerr)
+  int2D=real(gval, WP)
 end subroutine integrate_nod_2D
 !
 !--------------------------------------------------------------------------------------------
@@ -363,22 +369,23 @@ subroutine integrate_nod_3D(data, int3D, partit, mesh)
   real(kind=WP), intent(in)       :: data(:,:)
   real(kind=WP), intent(inout)    :: int3D
 
+  ! real64 accumulation for the same reason as integrate_nod_2D (FP64 island).
   integer       :: k, row
-  real(kind=WP) :: lval
-  real(kind=WP) :: lval_row
+  real(kind=8)  :: lval, gval
+  real(kind=8)  :: lval_row
 
 
 #include "associate_part_def.h"
 #include "associate_mesh_def.h"
 #include "associate_part_ass.h"
-#include "associate_mesh_ass.h" 
+#include "associate_mesh_ass.h"
 
-  lval=0.0_WP
+  lval=0.0_8
 !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(row, k, lval_row) REDUCTION(+: lval)
   do row=1, myDim_nod2D
-     lval_row = 0.
+     lval_row = 0.0_8
      do k=ulevels_nod2D(row), nlevels_nod2D(row)-1
-        lval_row=lval_row+data(k, row)*areasvol(k,row)*hnode_new(k,row)  ! --> TEST_cavity
+        lval_row=lval_row+real(data(k, row),8)*real(areasvol(k,row),8)*real(hnode_new(k,row),8)  ! --> TEST_cavity
      end do
 #if defined(__openmp_reproducible)
 !$OMP ORDERED
@@ -390,9 +397,10 @@ subroutine integrate_nod_3D(data, int3D, partit, mesh)
   end do
 !$OMP END PARALLEL DO
 
-  int3D=0.0_WP
-  call MPI_AllREDUCE(lval, int3D, 1, MPI_WP, MPI_SUM, &
+  gval=0.0_8
+  call MPI_AllREDUCE(lval, gval, 1, MPI_DOUBLE_PRECISION, MPI_SUM, &
        MPI_COMM_FESOM, MPIerr)
+  int3D=real(gval, WP)
 end subroutine integrate_nod_3D
 !
 !--------------------------------------------------------------------------------------------
